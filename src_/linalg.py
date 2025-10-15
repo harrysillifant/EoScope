@@ -1,0 +1,89 @@
+# sinfit/linalg.py
+from __future__ import annotations
+from typing import Iterable, List, Tuple, Callable
+import torch
+from torch import nn
+
+# ---------- Utilities to flatten/unflatten parameter lists ----------
+
+def _flatten_tensors(tensors: Iterable[torch.Tensor]) -> torch.Tensor:
+    return torch.cat([t.reshape(-1) for t in tensors])
+
+def _like_params(params: Iterable[torch.Tensor], flat: torch.Tensor) -> List[torch.Tensor]:
+    """Reshape 'flat' into a list with the same shapes as 'params'."""
+    outs, offset = [], 0
+    for p in params:
+        numel = p.numel()
+        outs.append(flat[offset:offset + numel].view_as(p))
+        offset += numel
+    return outs
+
+def flatten_params(model: nn.Module) -> torch.Tensor:
+    """Flatten current parameters into a single vector (detached CPU tensor)."""
+    with torch.no_grad():
+        return _flatten_tensors([p.detach().cpu() for p in model.parameters()])
+
+# ---------- Hessian-vector product (HVP) via Pearlmutter trick ----------
+
+def hvp(loss: torch.Tensor, params: List[torch.Tensor], v_flat: torch.Tensor) -> torch.Tensor:
+    """
+    Compute Hessian(loss wrt params) @ v using autograd.
+    Args:
+        loss: scalar loss (create_graph=True must be used when obtaining grads).
+        params: list of parameter tensors (requires_grad=True).
+        v_flat: flattened vector to multiply by H (on the same device as params).
+    Returns:
+        H @ v as a flattened tensor on the same device.
+    """
+    # First-order grads
+    grads = torch.autograd.grad(loss, params, create_graph=True, retain_graph=True)
+    # Dot(grads, v)
+    v_list = _like_params(params, v_flat)
+    grad_dot_v = torch.zeros((), device=loss.device)
+    for g, v in zip(grads, v_list):
+        grad_dot_v = grad_dot_v + (g * v).sum()
+    # Differentiate dot(grads, v) to get HVP
+    hv = torch.autograd.grad(grad_dot_v, params, retain_graph=True)
+    return _flatten_tensors(hv)
+
+# ---------- Power iteration for top eigenpair ----------
+
+@torch.no_grad()
+def _normalize(v: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
+    return v / (v.norm() + eps)
+
+CriterionFn = Callable[[nn.Module, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
+
+# ... (existing flatten/HVP helpers unchanged)
+
+def top_hessian_eigenpair(
+    model: nn.Module,
+    criterion: CriterionFn,
+    x_batch: torch.Tensor,
+    y_batch: torch.Tensor,
+    iters: int = 20,
+    init_vec: torch.Tensor | None = None,
+) -> Tuple[float, torch.Tensor]:
+    device = next(model.parameters()).device
+    params = [p for p in model.parameters() if p.requires_grad]
+
+    model.zero_grad(set_to_none=True)
+    y_pred = model(x_batch)
+    loss = criterion(model, x_batch, y_pred, y_batch)  # <-- use composite loss
+
+    if init_vec is None:
+        v = torch.randn(sum(p.numel() for p in params), device=device)
+    else:
+        v = init_vec.to(device)
+    v = _normalize(v)
+
+    for _ in range(iters):
+        hv = hvp(loss, params, v)
+        hv_det = hv.detach()
+        lam = float((v * hv_det).sum().item())
+        v = _normalize(hv_det)
+
+    hv = hvp(loss, params, v)
+    lam = float((v * hv).sum().item())
+    v = _normalize(v)
+    return lam, v

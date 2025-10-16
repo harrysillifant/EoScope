@@ -3,24 +3,29 @@ from torch.nn.utils import parameters_to_vector, vector_to_parameters
 import math
 import numpy as np
 
+
 def flatten_params(model):
     params = [p for p in model.parameters() if p.requires_grad]
     vec = parameters_to_vector(params).detach()
     return vec, params
 
+
 def _grad(loss, params, create_graph=False):
-    grads = torch.autograd.grad(loss, params, create_graph=create_graph, retain_graph=True, allow_unused=True)
+    grads = torch.autograd.grad(
+        loss, params, create_graph=create_graph, retain_graph=True, allow_unused=True
+    )
     grads = [g if g is not None else torch.zeros_like(p) for g, p in zip(grads, params)]
     return torch.cat([g.contiguous().view(-1) for g in grads])
 
+
 def hvp(loss, params, v):
-    """Compute Hessian-vector product Hv where H = 
-abla^2 loss and v is a vector in parameter space.
-    - loss should be a scalar (torch.Tensor)
-    - params is a list of parameters
-    - v is a 1D torch tensor matching flattened params
-    Returns flattened Hv tensor.
-    """\    
+    """Compute Hessian-vector product Hv where H =
+    abla^2 loss and v is a vector in parameter space.
+        - loss should be a scalar (torch.Tensor)
+        - params is a list of parameters
+        - v is a 1D torch tensor matching flattened params
+        Returns flattened Hv tensor.
+    """
     grad_flat = _grad(loss, params, create_graph=True)
     # dot grad with v
     dot = torch.dot(grad_flat, v)
@@ -29,7 +34,9 @@ abla^2 loss and v is a vector in parameter space.
     return torch.cat([h.contiguous().view(-1) for h in hv]).detach()
 
 
-def power_iteration_hessian_max(loss_fn, model, params, inputs, targets, n_iters=20, tol=1e-4, device='cpu'):
+def power_iteration_hessian_max(
+    loss_fn, model, params, inputs, targets, n_iters=20, tol=1e-4, device="cpu"
+):
     """Estimate top eigenvalue and eigenvector of Hessian via power iteration using hvp.
     loss_fn: callable (model, inputs, targets) -> scalar loss
     params: list(model.parameters())
@@ -86,7 +93,7 @@ def layer_spectral_norms(model, n_iters=20):
     return norms
 
 
-def compute_ntk_gram(model, inputs, output_index=None, device='cpu'):
+def compute_ntk_gram(model, inputs, output_index=None, device="cpu"):
     """Compute Gram matrix J J^T where J_{i,:} = grad_params( scalar_output_i )
     For scalar_output_i: we use the logit for `output_index` if provided, otherwise sum of logits.
     inputs: tensor of shape (m, C, H, W)
@@ -97,7 +104,7 @@ def compute_ntk_gram(model, inputs, output_index=None, device='cpu'):
     m = inputs.size(0)
     grads = []
     for i in range(m):
-        x = inputs[i:i+1]
+        x = inputs[i : i + 1]
         logits = model(x)
         if output_index is None:
             scalar = logits.sum()
@@ -113,12 +120,15 @@ def compute_ntk_gram(model, inputs, output_index=None, device='cpu'):
 def topk_eigvals_numpy(mat, k=5):
     # mat: numpy array
     import numpy.linalg as la
+
     vals, vecs = la.eigh(mat)
     vals = vals[::-1]
     return vals[:k]
 
 
-def hessian_topk_via_deflation(loss_fn, model, params, inputs, targets, k=3, n_iters=20, device='cpu'):
+def hessian_topk_via_deflation(
+    loss_fn, model, params, inputs, targets, k=3, n_iters=20, device="cpu"
+):
     """Compute top-k Hessian eigenvalues via repeated power iteration + deflation.
     This is a simple implementation (not optimized). Use small k and small models/datasets.
     """
@@ -126,6 +136,7 @@ def hessian_topk_via_deflation(loss_fn, model, params, inputs, targets, k=3, n_i
     P = flat.numel()
     eigenvals = []
     eigenvecs = []
+
     def project_out(v, vecs):
         if len(vecs) == 0:
             return v

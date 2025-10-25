@@ -5,7 +5,7 @@ import os
 
 
 def make_live_animation(
-    history, results_dir="results", fname="training_metrics.mp4", fps=4
+    history, results_dir="results", fname="training_metrics.mp4", fps=4, lr=1e-3
 ):
     """history: dict with keys 'train_loss', 'test_loss', 'sharpness', 'layer_norms', 'ntk_eigs', 'hessian_eigs'
     - layer_norms: list of dicts per epoch
@@ -19,27 +19,42 @@ def make_live_animation(
     ax_layer = axes[1, 0]
     ax_ntk = axes[1, 1]
     ax_hess = axes[2, 0]
-    ax_empty = axes[2, 1]
-    ax_empty.axis("off")
+    ax_nlr = axes[2, 1]
+    ax_loss.set_title("Train & Test Loss")
+    ax_loss.set_xlabel("epoch")
+    ax_sharp.set_title("Sharpness (max Hessian eigenval)")
+    ax_sharp.set_xlabel("epoch")
+    ax_layer.set_title("Layer spectral norms")
+    ax_layer.set_xlabel("epoch")
+    ax_ntk.set_title("Top-k NTK eigenvalues")
+    ax_ntk.set_xlabel("epoch")
+    ax_hess.set_title("Top-k Hessian eigenvalues")
+    ax_hess.set_xlabel("epoch")
+    ax_nlr.set_title("Number of linear regions")
+    ax_nlr.set_xlabel("epoch")
 
     epochs = len(history["train_loss"])
 
     def init():
-        ax_loss.clear()
-        ax_sharp.clear()
-        ax_layer.clear()
-        ax_ntk.clear()
-        ax_hess.clear()
-        ax_loss.set_title("Train & Test Loss")
-        ax_loss.set_xlabel("epoch")
-        ax_sharp.set_title("Sharpness (max Hessian eigenval)")
-        ax_sharp.set_xlabel("epoch")
-        ax_layer.set_title("Layer spectral norms")
-        ax_layer.set_xlabel("epoch")
-        ax_ntk.set_title("Top-k NTK eigenvalues")
-        ax_ntk.set_xlabel("epoch")
-        ax_hess.set_title("Top-k Hessian eigenvalues")
-        ax_hess.set_xlabel("epoch")
+        # ax_loss.clear()
+        # ax_sharp.clear()
+        # ax_layer.clear()
+        # ax_ntk.clear()
+        # ax_hess.clear()
+        # ax_nlr.clear()
+        # ax_loss.set_title("Train & Test Loss")
+        # ax_loss.set_xlabel("epoch")
+        # ax_sharp.set_title("Sharpness (max Hessian eigenval)")
+        # ax_sharp.set_xlabel("epoch")
+        # ax_layer.set_title("Layer spectral norms")
+        # ax_layer.set_xlabel("epoch")
+        # ax_ntk.set_title("Top-k NTK eigenvalues")
+        # ax_ntk.set_xlabel("epoch")
+        # ax_hess.set_title("Top-k Hessian eigenvalues")
+        # ax_hess.set_xlabel("epoch")
+        # ax_nlr.set_title("Number of linear regions")
+        # ax_nlr.set_xlabel("epoch")
+        #
         return []
 
     def update(i):
@@ -48,19 +63,30 @@ def make_live_animation(
         ax_layer.clear()
         ax_ntk.clear()
         ax_hess.clear()
+        ax_nlr.clear()
+        ax_loss.set_title("Train & Test Loss")
+        ax_sharp.set_title("Sharpness (max Hessian eigenval)")
+        ax_layer.set_title("Layer spectral norms")
+        ax_ntk.set_title("Top-k NTK eigenvalues")
+        ax_hess.set_title("Top-k Hessian eigenvalues")
+        ax_nlr.set_title("Number of linear regions")
+
         x = np.arange(1, i + 2)
         ax_loss.plot(x, history["train_loss"][: i + 1], label="train")
         ax_loss.plot(x, history["test_loss"][: i + 1], label="test")
         ax_loss.legend()
 
         ax_sharp.plot(x, history["sharpness"][: i + 1])
+        ax_sharp.axhline(y=2 / lr, color="red", linestyle="--", label="2/eta")
+        ax_sharp.legend(fontsize=8)
 
         # layer norms: history['layer_norms'] is a list of dicts
         layer_names = []
         if len(history["layer_norms"]) > 0:
             layer_names = list(history["layer_norms"][0].keys())
             for lname in layer_names:
-                vals = [d.get(lname, np.nan) for d in history["layer_norms"][: i + 1]]
+                vals = [d.get(lname, np.nan)
+                        for d in history["layer_norms"][: i + 1]]
                 ax_layer.plot(x, vals, label=lname)
             ax_layer.legend(fontsize=8)
 
@@ -84,7 +110,8 @@ def make_live_animation(
                 ]
                 ax_hess.plot(x, vals, label=f"hess_{k}")
             ax_hess.legend(fontsize=8)
-
+        if len(history["num_linear_regions"]) > 0:
+            ax_nlr.plot(x, history["num_linear_regions"][: i + 1])
         fig.suptitle(f"Epoch {i + 1}/{epochs}")
         return []
 

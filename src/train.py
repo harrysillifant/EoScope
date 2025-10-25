@@ -7,6 +7,7 @@ import os
 import numpy as np
 from tqdm import tqdm
 from model import SimpleReLUMLP
+import json
 from data import get_mnist_loaders
 from utils import (
     flatten_params,
@@ -15,6 +16,7 @@ from utils import (
     compute_ntk_gram,
     topk_eigvals_numpy,
     hessian_topk_via_deflation,
+    num_linear_regions,
 )
 from viz import make_live_animation
 
@@ -52,7 +54,8 @@ def main():
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--device", type=str, default="cpu")
-    parser.add_argument("--hidden-sizes", nargs="+", type=int, default=[512, 256, 128])
+    parser.add_argument("--hidden-sizes", nargs="+",
+                        type=int, default=[512, 256, 128])
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument(
         "--ntk-subset", type=int, default=128, help="subset size for NTK computations"
@@ -77,6 +80,7 @@ def main():
         "layer_norms": [],
         "ntk_eigs": [],
         "hessian_eigs": [],
+        "num_linear_regions": [],
     }
     results_dir = "results"
     os.makedirs(results_dir, exist_ok=True)
@@ -92,7 +96,7 @@ def main():
             opt.zero_grad()
             logits = model(x)
 
-            # ✅ One-hot encode labels for MSE
+            #  One-hot encode labels for MSE
             one_hot = torch.zeros_like(logits)
             one_hot.scatter_(1, y.view(-1, 1), 1.0)
 
@@ -138,7 +142,8 @@ def main():
                     if sum([a.size(0) for a in xs]) >= ntk_subset:
                         break
                 xs = torch.cat(xs, 0)[:ntk_subset].to(device)
-                gram = compute_ntk_gram(model, xs, output_index=None, device=device)
+                gram = compute_ntk_gram(
+                    model, xs, output_index=None, device=device)
                 ntk_topk = topk_eigvals_numpy(gram, k=args.ntk_topk)
             else:
                 ntk_topk = []
@@ -162,6 +167,13 @@ def main():
             print("Hessian top-k failed:", e)
             h_topk = []
 
+        # === Number Linear Regions ===
+        try:
+            nlr = num_linear_regions(X=x, model=model, device=device)
+        except Exception as e:
+            print("Count linear regions failed:", e)
+            nlr = 0
+
         # === Record history ===
         history["train_loss"].append(train_loss)
         history["test_loss"].append(test_loss)
@@ -173,20 +185,21 @@ def main():
         history["hessian_eigs"].append(
             list(map(float, h_topk)) if len(h_topk) > 0 else []
         )
+        history["num_linear_regions"].append(nlr)
 
         # Save intermediate history
-        import json
 
         with open(os.path.join(results_dir, "history.json"), "w") as f:
             json.dump(history, f, indent=2)
 
         print(
             f"Epoch {epoch + 1}: train_loss={train_loss:.4f}, test_loss={
-                test_loss:.4f}, sharpness={lambda_max:.4f}"
+                test_loss:.4f}, sharpness={lambda_max:.4f}, num_linear_regions={nlr}"
         )
 
     # === Produce animation ===
-    make_live_animation(history, results_dir=results_dir, fname="training_metrics.mp4")
+    make_live_animation(history, results_dir=results_dir,
+                        fname="training_metrics.mp4")
 
     # Save final model
     torch.save(model.state_dict(), os.path.join(results_dir, "model_final.pt"))

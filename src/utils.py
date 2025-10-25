@@ -2,6 +2,8 @@ import torch
 from torch.nn.utils import parameters_to_vector, vector_to_parameters
 import math
 import numpy as np
+import torch.nn as nn
+from typing import List
 
 
 def flatten_params(model):
@@ -14,7 +16,8 @@ def _grad(loss, params, create_graph=False):
     grads = torch.autograd.grad(
         loss, params, create_graph=create_graph, retain_graph=True, allow_unused=True
     )
-    grads = [g if g is not None else torch.zeros_like(p) for g, p in zip(grads, params)]
+    grads = [g if g is not None else torch.zeros_like(
+        p) for g, p in zip(grads, params)]
     return torch.cat([g.contiguous().view(-1) for g in grads])
 
 
@@ -30,7 +33,8 @@ def hvp(loss, params, v):
     # dot grad with v
     dot = torch.dot(grad_flat, v)
     hv = torch.autograd.grad(dot, params, retain_graph=True)
-    hv = [h if h is not None else torch.zeros_like(p) for h, p in zip(hv, params)]
+    hv = [h if h is not None else torch.zeros_like(
+        p) for h, p in zip(hv, params)]
     return torch.cat([h.contiguous().view(-1) for h in hv]).detach()
 
 
@@ -104,7 +108,7 @@ def compute_ntk_gram(model, inputs, output_index=None, device="cpu"):
     m = inputs.size(0)
     grads = []
     for i in range(m):
-        x = inputs[i : i + 1]
+        x = inputs[i: i + 1]
         logits = model(x)
         if output_index is None:
             scalar = logits.sum()
@@ -176,3 +180,56 @@ def hessian_topk_via_deflation(
             v_orth = v_orth / v_orth.norm()
             eigenvecs.append(v_orth)
     return eigenvals
+
+
+def num_linear_regions(model: nn.Module, X: torch.Tensor, device: str = "cpu") -> int:
+    """
+    Approximate count of distinct linear regions for a ReLU MLP in d-D input space.
+
+    Counts the number of *unique activation patterns* (ReLU on/off combinations)
+    across all sampled input points X ∈ R^{N x d}.
+
+    Args:
+        model: torch.nn.Module (MLP with ReLUs)
+        X: torch.Tensor, shape (N, d) – sample points in input space
+
+    Returns:
+        int – number of distinct linear regions found among sampled points
+    """
+
+    # --- 1. Register hooks to capture pre-activation tensors before each ReLU ---
+    preacts: List[torch.Tensor] = []
+    handles = []
+
+    def _make_hook():
+        def _hook(mod, inp, out):
+            z = inp[0].detach().cpu()
+            preacts.append(z)
+
+        return _hook
+
+    for m in model.modules():
+        if isinstance(m, nn.ReLU):
+            handles.append(m.register_forward_hook(_make_hook()))
+
+    # --- 2. Run forward pass over all samples ---
+    _ = model(X.to(next(model.parameters()).device))
+
+    for h in handles:
+        h.remove()
+
+    if not preacts:
+        return 1  # No ReLUs ⇒ single smooth region
+
+    # --- 3. Build binary activation masks (z > 0) per ReLU layer ---
+    masks = [(z > 0).to(torch.int8)
+             for z in preacts]  # each shape: (N, hidden)
+    # print("Marks", masks.shape)
+    mask_concat = torch.cat(masks, dim=1)  # (N, total_hidden)
+
+    # --- 4. Count distinct activation patterns across all sampled points ---
+    # Each unique row = one linear region
+    unique_patterns = torch.unique(mask_concat, dim=0)
+    num_regions = unique_patterns.shape[0]
+
+    return num_regions

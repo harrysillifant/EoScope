@@ -54,8 +54,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--device", type=str, default="cpu")
-    parser.add_argument("--hidden-sizes", nargs="+",
-                        type=int, default=[512, 256, 128])
+    parser.add_argument("--hidden-sizes", nargs="+", type=int, default=[512, 256, 128])
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument(
         "--ntk-subset", type=int, default=128, help="subset size for NTK computations"
@@ -64,15 +63,21 @@ def main():
     parser.add_argument("--hessian-topk", type=int, default=3)
     parser.add_argument("--train-size", type=int, default=None)
     parser.add_argument("--test-size", type=int, default=None)
+    parser.add_argument("--optimizer", type=str, default="gd")
     args = parser.parse_args()
 
     device = torch.device(args.device)
     model = SimpleReLUMLP(hidden_sizes=args.hidden_sizes).to(device)
+
+    if args.optimizer == "gd":
+        opt = optim.SGD(model.parameters(), lr=args.lr)
+        args.batch_size = None
+    else:
+        opt = optim.Adam(model.parameters(), lr=args.lr)
+
     train_loader, test_loader = get_mnist_loaders(
         batch_size=args.batch_size, train_size=args.train_size, test_size=args.test_size
     )
-    opt = optim.Adam(model.parameters(), lr=args.lr)
-
     history = {
         "train_loss": [],
         "test_loss": [],
@@ -142,8 +147,7 @@ def main():
                     if sum([a.size(0) for a in xs]) >= ntk_subset:
                         break
                 xs = torch.cat(xs, 0)[:ntk_subset].to(device)
-                gram = compute_ntk_gram(
-                    model, xs, output_index=None, device=device)
+                gram = compute_ntk_gram(model, xs, output_index=None, device=device)
                 ntk_topk = topk_eigvals_numpy(gram, k=args.ntk_topk)
             else:
                 ntk_topk = []
@@ -169,7 +173,14 @@ def main():
 
         # === Number Linear Regions ===
         try:
-            nlr = num_linear_regions(X=x, model=model, device=device)
+            # need to get all x points here
+            X = []
+            for x, _ in train_loader:
+                X.append(x)
+            for x, _ in test_loader:
+                X.append(x)
+            X = torch.cat(X, dim=0)
+            nlr = num_linear_regions(X=X, model=model, device=device)
         except Exception as e:
             print("Count linear regions failed:", e)
             nlr = 0
@@ -198,8 +209,9 @@ def main():
         )
 
     # === Produce animation ===
-    make_live_animation(history, results_dir=results_dir,
-                        fname="training_metrics.mp4")
+    make_live_animation(
+        history, results_dir=results_dir, fname="training_metrics.mp4", lr=args.lr
+    )
 
     # Save final model
     torch.save(model.state_dict(), os.path.join(results_dir, "model_final.pt"))

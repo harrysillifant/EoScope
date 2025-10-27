@@ -1,4 +1,4 @@
-# MNIST ReLU Live Metrics Repo
+# ReLU Net Live Metrics
 
 This repository contains a PyTorch-based training script for a simple ReLU fully-connected network on MNIST
 and tools to compute & visualize (live/video) the following metrics as training proceeds:

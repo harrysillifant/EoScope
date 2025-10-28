@@ -30,7 +30,6 @@ def hvp(loss, params, v):
         Returns flattened Hv tensor.
     """
     grad_flat = _grad(loss, params, create_graph=True)
-    # dot grad with v
     dot = torch.dot(grad_flat, v)
     hv = torch.autograd.grad(dot, params, retain_graph=True)
     hv = [h if h is not None else torch.zeros_like(
@@ -46,7 +45,6 @@ def power_iteration_hessian_max(
     params: list(model.parameters())
     Returns (lambda_max, vec)
     """
-    # initialize random vector
     flat, _ = flatten_params(model)
     v = torch.randn_like(flat).to(device)
     v /= v.norm()
@@ -64,7 +62,6 @@ def power_iteration_hessian_max(
         if nrm.item() == 0:
             break
         v = v / nrm
-    # Rayleigh quotient as eigenvalue estimate
     model.zero_grad()
     loss = loss_fn(model, inputs, targets)
     Hv = hvp(loss, params, v)
@@ -237,7 +234,7 @@ def num_linear_regions_pier(
     # sample points from the line across them
     # count the number of distinct linear regions along the line
 
-    num_samples_pairs = 100
+    num_samples_pairs = 10
     num_samples_line = 10
     num_regions_all = []
     while num_samples_pairs:
@@ -248,18 +245,21 @@ def num_linear_regions_pier(
             x1, x2 = X[idx1], X[idx2]
             for a in np.linspace(0, 1, num_samples_line):
                 x = x1 * (1 - a) + x2 * a
+                x = x.unsqueeze(0)
                 yh = model(x)
                 ys_on_line.append(yh)
             num_samples_pairs -= 1
 
         num_regions = 0
-        for i, yh in enumerate(ys_on_line[1:-1]):
-            if ys_on_line[i + 1] - ys_on_line[i] == ys_on_line[i] - ys_on_line[i - 1]:
+        for i, _ in enumerate(ys_on_line[1:-1]):
+            y_delta_2 = ys_on_line[i + 1] - ys_on_line[i]
+            y_delta_1 = ys_on_line[i] - ys_on_line[i - 1]
+            if torch.norm(y_delta_2 - y_delta_1) > 1e-5:
                 num_regions += 1
         num_regions_all.append(num_regions)
 
     return np.mean(num_regions_all)
 
 
-def num_linear_regions_hanin(model: nn.Module, X: torch.Tensor, device: str = "cpu") -> int:
-    # sample two
+# def num_linear_regions_hanin(model: nn.Module, X: torch.Tensor, device: str = "cpu") -> int:
+#     # sample two

@@ -16,7 +16,8 @@ def _grad(loss, params, create_graph=False):
     grads = torch.autograd.grad(
         loss, params, create_graph=create_graph, retain_graph=True, allow_unused=True
     )
-    grads = [g if g is not None else torch.zeros_like(p) for g, p in zip(grads, params)]
+    grads = [g if g is not None else torch.zeros_like(
+        p) for g, p in zip(grads, params)]
     return torch.cat([g.contiguous().view(-1) for g in grads])
 
 
@@ -29,10 +30,10 @@ def hvp(loss, params, v):
         Returns flattened Hv tensor.
     """
     grad_flat = _grad(loss, params, create_graph=True)
-    # dot grad with v
     dot = torch.dot(grad_flat, v)
     hv = torch.autograd.grad(dot, params, retain_graph=True)
-    hv = [h if h is not None else torch.zeros_like(p) for h, p in zip(hv, params)]
+    hv = [h if h is not None else torch.zeros_like(
+        p) for h, p in zip(hv, params)]
     return torch.cat([h.contiguous().view(-1) for h in hv]).detach()
 
 
@@ -44,7 +45,6 @@ def power_iteration_hessian_max(
     params: list(model.parameters())
     Returns (lambda_max, vec)
     """
-    # initialize random vector
     flat, _ = flatten_params(model)
     v = torch.randn_like(flat).to(device)
     v /= v.norm()
@@ -62,7 +62,6 @@ def power_iteration_hessian_max(
         if nrm.item() == 0:
             break
         v = v / nrm
-    # Rayleigh quotient as eigenvalue estimate
     model.zero_grad()
     loss = loss_fn(model, inputs, targets)
     Hv = hvp(loss, params, v)
@@ -106,7 +105,7 @@ def compute_ntk_gram(model, inputs, output_index=None, device="cpu"):
     m = inputs.size(0)
     grads = []
     for i in range(m):
-        x = inputs[i : i + 1]
+        x = inputs[i: i + 1]
         logits = model(x)
         if output_index is None:
             scalar = logits.sum()
@@ -180,7 +179,9 @@ def hessian_topk_via_deflation(
     return eigenvals
 
 
-def num_linear_regions(model: nn.Module, X: torch.Tensor, device: str = "cpu") -> int:
+def num_linear_regions_basic(
+    model: nn.Module, X: torch.Tensor, device: str = "cpu"
+) -> int:
     """
     Approximate count of distinct linear regions for a ReLU MLP in d-D input space.
 
@@ -215,12 +216,50 @@ def num_linear_regions(model: nn.Module, X: torch.Tensor, device: str = "cpu") -
         h.remove()
 
     if not preacts:
-        return 1  # No ReLUs ⇒ single smooth region
+        return 1
 
-    masks = [(z > 0).to(torch.int8) for z in preacts]  # each shape: (N, hidden)
+    masks = [(z > 0).to(torch.int8) for z in preacts]  # (N, hidden)
     mask_concat = torch.cat(masks, dim=1)  # (N, total_hidden)
 
     unique_patterns = torch.unique(mask_concat, dim=0)
     num_regions = unique_patterns.shape[0]
 
     return num_regions
+
+
+def num_linear_regions_pier(
+    model: nn.Module, X: torch.Tensor, y: torch.Tensor, device: str = "cpu"
+) -> int:
+    # Sample two points with different labels in the input space
+    # sample points from the line across them
+    # count the number of distinct linear regions along the line
+
+    num_samples_pairs = 10
+    num_samples_line = 10
+    num_regions_all = []
+    while num_samples_pairs:
+        idx1 = torch.randint(0, X.size(0), (1,)).item()
+        idx2 = torch.randint(0, X.size(0), (1,)).item()
+        ys_on_line = []
+        if y[idx1] != y[idx2]:  # different labels
+            x1, x2 = X[idx1], X[idx2]
+            for a in np.linspace(0, 1, num_samples_line):
+                x = x1 * (1 - a) + x2 * a
+                x = x.unsqueeze(0)
+                yh = model(x)
+                ys_on_line.append(yh)
+            num_samples_pairs -= 1
+
+        num_regions = 0
+        for i, _ in enumerate(ys_on_line[1:-1]):
+            y_delta_2 = ys_on_line[i + 1] - ys_on_line[i]
+            y_delta_1 = ys_on_line[i] - ys_on_line[i - 1]
+            if torch.norm(y_delta_2 - y_delta_1) > 1e-5:
+                num_regions += 1
+        num_regions_all.append(num_regions)
+
+    return np.mean(num_regions_all)
+
+
+# def num_linear_regions_hanin(model: nn.Module, X: torch.Tensor, device: str = "cpu") -> int:
+#     # sample two

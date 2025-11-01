@@ -110,8 +110,8 @@ def make_live_animation(
                 ]
                 ax_hess.plot(x, vals, label=f"hess_{k}")
             ax_hess.legend(fontsize=8)
-        if len(history["num_linear_regions"]) > 0:
-            ax_nlr.plot(x, history["num_linear_regions"][: i + 1])
+        if len(history["num_linear_regions_basic"]) > 0:
+            ax_nlr.plot(x, history["num_linear_regions_basic"][: i + 1])
         fig.suptitle(f"Epoch {i + 1}/{epochs}")
         return []
 

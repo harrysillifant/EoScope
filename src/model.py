@@ -4,15 +4,15 @@ import torch.nn as nn
 class SimpleReLUMLP(nn.Module):
     """Simple fully-connected ReLU MLP for MNIST (flattened 28x28 input -> hidden layers -> 10 logits)."""
 
-    def __init__(self, hidden_sizes=[512, 256, 128], input_dim=28 * 28, n_classes=10):
+    def __init__(self, hidden_sizes=[200, 200], input_dim=28 * 28, n_classes=10):
         super().__init__()
         layers = []
         last = input_dim
         for h in hidden_sizes:
-            layers.append(nn.Linear(last, h))
+            layers.append(nn.Linear(last, h, bias=True))
             layers.append(nn.ReLU(inplace=True))
             last = h
-        layers.append(nn.Linear(last, n_classes))
+        layers.append(nn.Linear(last, n_classes, bias=True))
         self.net = nn.Sequential(*layers)
 
     def forward(self, x):

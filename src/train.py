@@ -54,8 +54,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--device", type=str, default="cpu")
-    parser.add_argument("--hidden-sizes", nargs="+",
-                        type=int, default=[512, 256, 128])
+    parser.add_argument("--hidden-sizes", nargs="+", type=int, default=[200, 200])
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument(
         "--ntk-subset", type=int, default=128, help="subset size for NTK computations"
@@ -175,8 +174,7 @@ def main():
                     if sum([a.size(0) for a in xs]) >= ntk_subset:
                         break
                 xs = torch.cat(xs, 0)[:ntk_subset].to(device)
-                gram = compute_ntk_gram(
-                    model, xs, output_index=None, device=device)
+                gram = compute_ntk_gram(model, xs, output_index=None, device=device)
                 ntk_topk = topk_eigvals_numpy(gram, k=args.ntk_topk)
             else:
                 ntk_topk = []
@@ -210,8 +208,7 @@ def main():
             for x, _ in test_loader:
                 X.append(x)
             X = torch.cat(X, dim=0)
-            nlr_basic = num_linear_regions_basic(
-                X=X, model=model, device=device)
+            nlr_basic = num_linear_regions_basic(X=X, model=model, device=device)
         except Exception as e:
             print("Count linear regions failed:", e)
             nlr_basic = 0
@@ -228,8 +225,7 @@ def main():
                 Y.append(y)
             X = torch.cat(X, dim=0)
             Y = torch.cat(Y, dim=0)
-            nlr_pier = num_linear_regions_pier(
-                X=X, y=Y, model=model, device=device)
+            nlr_pier = num_linear_regions_pier(X=X, y=Y, model=model, device=device)
         except Exception as e:
             print("Pier count failed: ", e)
             nlr_pier = 0

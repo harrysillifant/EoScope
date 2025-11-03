@@ -11,13 +11,13 @@ import json
 from data import get_mnist_loaders, get_cifar10_loaders
 from utils import (
     flatten_params,
-    power_iteration_hessian_max,
     layer_spectral_norms,
     compute_ntk_gram,
     topk_eigvals_numpy,
     hessian_topk_via_deflation,
     num_linear_regions_basic,
     num_linear_regions_pier,
+    top_hessian_eigenpair,
 )
 from viz import make_live_animation
 
@@ -146,8 +146,11 @@ def main():
         params = [p for p in model.parameters() if p.requires_grad]
         # Sharpness
         try:
-            lambda_max, _ = power_iteration_hessian_max(
-                loss_fn_mse, model, params, xb, yb, n_iters=10, device=device
+            # lambda_max, _ = power_iteration_hessian_max(
+            #     loss_fn_mse, model, params, xb, yb, n_iters=10, device=device
+            # )
+            lambda_max, v = top_hessian_eigenpair(
+                model=model, criterion=loss_fn_mse, x_batch=xb, y_batch=yb, iters=20
             )
         except Exception as e:
             print("Sharpness computation failed:", e)
@@ -161,7 +164,7 @@ def main():
             print("Layer norm computation failed:", e)
             norms = {}
 
-        # === NTK top-k ===
+        # NTK top-k
         try:
             raise ValueError
             ntk_subset = args.ntk_subset

@@ -22,21 +22,15 @@ def _like_params(
     outs, offset = [], 0
     for p in params:
         numel = p.numel()
-        outs.append(flat[offset : offset + numel].view_as(p))
+        outs.append(flat[offset: offset + numel].view_as(p))
         offset += numel
     return outs
 
 
-def flatten_params(model: nn.Module) -> torch.Tensor:
-    """Flatten current parameters into a single vector (detached CPU tensor)."""
-    with torch.no_grad():
-        return _flatten_tensors([p.detach().cpu() for p in model.parameters()])
-
-
-# def flatten_params(model):
-#     params = [p for p in model.parameters() if p.requires_grad]
-#     vec = parameters_to_vector(params).detach()
-#     return vec, params
+def flatten_params(model):
+    params = [p for p in model.parameters() if p.requires_grad]
+    vec = parameters_to_vector(params).detach()
+    return vec, params
 
 
 @torch.no_grad()
@@ -48,7 +42,8 @@ def _grad(loss, params, create_graph=False):
     grads = torch.autograd.grad(
         loss, params, create_graph=create_graph, retain_graph=True, allow_unused=True
     )
-    grads = [g if g is not None else torch.zeros_like(p) for g, p in zip(grads, params)]
+    grads = [g if g is not None else torch.zeros_like(
+        p) for g, p in zip(grads, params)]
     return torch.cat([g.contiguous().view(-1) for g in grads])
 
 
@@ -63,7 +58,8 @@ def hvp(loss, params, v):
     grad_flat = _grad(loss, params, create_graph=True)
     dot = torch.dot(grad_flat, v)
     hv = torch.autograd.grad(dot, params, retain_graph=True)
-    hv = [h if h is not None else torch.zeros_like(p) for h, p in zip(hv, params)]
+    hv = [h if h is not None else torch.zeros_like(
+        p) for h, p in zip(hv, params)]
     return torch.cat([h.contiguous().view(-1) for h in hv]).detach()
 
 
@@ -135,7 +131,7 @@ def compute_ntk_gram(model, inputs, output_index=None, device="cpu"):
     m = inputs.size(0)
     grads = []
     for i in range(m):
-        x = inputs[i : i + 1]
+        x = inputs[i: i + 1]
         logits = model(x)
         if output_index is None:
             scalar = logits.sum()

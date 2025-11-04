@@ -17,16 +17,16 @@ from utils import (
     hessian_topk_via_deflation,
     num_linear_regions_basic,
     num_linear_regions_pier,
-    top_hessian_eigenpair,
+    power_iteration_hessian_max,
 )
 from viz import make_live_animation
 
 
 def loss_fn_mse(model, inputs, targets):
     logits = model(inputs)
-    one_hot = torch.zeros_like(logits)
-    one_hot.scatter_(1, targets.view(-1, 1), 1.0)
-    loss = nn.MSELoss()(logits, one_hot)
+    # one_hot = torch.zeros_like(logits)
+    # one_hot.scatter_(1, targets.view(-1, 1), 1.0)
+    loss = nn.MSELoss()(logits, targets)
     return loss
 
 
@@ -40,9 +40,9 @@ def evaluate(model, dataloader, device):
             x = x.to(device)
             y = y.to(device)
             logits = model(x)
-            one_hot = torch.zeros_like(logits)
-            one_hot.scatter_(1, y.view(-1, 1), 1.0)
-            loss = criterion(logits, one_hot)
+            # one_hot = torch.zeros_like(logits)
+            # one_hot.scatter_(1, y.view(-1, 1), 1.0)
+            loss = criterion(logits, y)
             batch = x.size(0)
             total_loss += loss.item() * batch
             total += batch
@@ -54,7 +54,8 @@ def main():
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--device", type=str, default="cpu")
-    parser.add_argument("--hidden-sizes", nargs="+", type=int, default=[200, 200])
+    parser.add_argument("--hidden-sizes", nargs="+",
+                        type=int, default=[200, 200])
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument(
         "--ntk-subset", type=int, default=128, help="subset size for NTK computations"
@@ -124,12 +125,6 @@ def main():
             opt.zero_grad()
             preds = model(x)
 
-            # if args.dataset == "mnist":
-            one_hot = torch.zeros_like(preds)
-            # turn mnist data into one hot for regression
-            one_hot.scatter_(1, y.view(-1, 1), 1.0)
-            y = one_hot
-
             loss = nn.MSELoss()(preds, y)
             loss.backward()
             opt.step()
@@ -146,11 +141,8 @@ def main():
         params = [p for p in model.parameters() if p.requires_grad]
         # Sharpness
         try:
-            # lambda_max, _ = power_iteration_hessian_max(
-            #     loss_fn_mse, model, params, xb, yb, n_iters=10, device=device
-            # )
-            lambda_max, v = top_hessian_eigenpair(
-                model=model, criterion=loss_fn_mse, x_batch=xb, y_batch=yb, iters=20
+            lambda_max, _ = power_iteration_hessian_max(
+                loss_fn_mse, model, params, xb, yb, n_iters=10, device=device
             )
         except Exception as e:
             print("Sharpness computation failed:", e)
@@ -158,7 +150,6 @@ def main():
 
         # Layer spectral norms
         try:
-            raise ValueError
             norms = layer_spectral_norms(model)
         except Exception as e:
             print("Layer norm computation failed:", e)
@@ -166,7 +157,6 @@ def main():
 
         # NTK top-k
         try:
-            raise ValueError
             ntk_subset = args.ntk_subset
             if ntk_subset > 0:
                 xs = []
@@ -177,7 +167,8 @@ def main():
                     if sum([a.size(0) for a in xs]) >= ntk_subset:
                         break
                 xs = torch.cat(xs, 0)[:ntk_subset].to(device)
-                gram = compute_ntk_gram(model, xs, output_index=None, device=device)
+                gram = compute_ntk_gram(
+                    model, xs, output_index=None, device=device)
                 ntk_topk = topk_eigvals_numpy(gram, k=args.ntk_topk)
             else:
                 ntk_topk = []
@@ -187,7 +178,6 @@ def main():
 
         # Hessian top-k eigenvalues
         try:
-            raise ValueError
             h_topk = hessian_topk_via_deflation(
                 loss_fn_mse,
                 model,
@@ -211,7 +201,8 @@ def main():
             for x, _ in test_loader:
                 X.append(x)
             X = torch.cat(X, dim=0)
-            nlr_basic = num_linear_regions_basic(X=X, model=model, device=device)
+            nlr_basic = num_linear_regions_basic(
+                X=X, model=model, device=device)
         except Exception as e:
             print("Count linear regions failed:", e)
             nlr_basic = 0
@@ -228,7 +219,8 @@ def main():
                 Y.append(y)
             X = torch.cat(X, dim=0)
             Y = torch.cat(Y, dim=0)
-            nlr_pier = num_linear_regions_pier(X=X, y=Y, model=model, device=device)
+            nlr_pier = num_linear_regions_pier(
+                X=X, y=Y, model=model, device=device)
         except Exception as e:
             print("Pier count failed: ", e)
             nlr_pier = 0

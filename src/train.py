@@ -24,9 +24,9 @@ from viz import make_live_animation
 
 def loss_fn_mse(model, inputs, targets):
     logits = model(inputs)
-    one_hot = torch.zeros_like(logits)
-    one_hot.scatter_(1, targets.view(-1, 1), 1.0)
-    loss = nn.MSELoss()(logits, one_hot)
+    # one_hot = torch.zeros_like(logits)
+    # one_hot.scatter_(1, targets.view(-1, 1), 1.0)
+    loss = nn.MSELoss()(logits, targets)
     return loss
 
 
@@ -40,9 +40,9 @@ def evaluate(model, dataloader, device):
             x = x.to(device)
             y = y.to(device)
             logits = model(x)
-            one_hot = torch.zeros_like(logits)
-            one_hot.scatter_(1, y.view(-1, 1), 1.0)
-            loss = criterion(logits, one_hot)
+            # one_hot = torch.zeros_like(logits)
+            # one_hot.scatter_(1, y.view(-1, 1), 1.0)
+            loss = criterion(logits, y)
             batch = x.size(0)
             total_loss += loss.item() * batch
             total += batch
@@ -123,12 +123,6 @@ def main():
             y = y.to(device)
             opt.zero_grad()
             preds = model(x)
-
-            # if args.dataset == "mnist":
-            one_hot = torch.zeros_like(preds)
-            # turn mnist data into one hot for regression
-            one_hot.scatter_(1, y.view(-1, 1), 1.0)
-            y = one_hot
 
             loss = nn.MSELoss()(preds, y)
             loss.backward()

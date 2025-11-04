@@ -52,216 +52,51 @@ def _grad(loss, params, create_graph=False):
     return torch.cat([g.contiguous().view(-1) for g in grads])
 
 
-# def hvp(loss, params, v):
-#     """Compute Hessian-vector product Hv where H =
-#     abla^2 loss and v is a vector in parameter space.
-#         - loss should be a scalar (torch.Tensor)
-#         - params is a list of parameters
-#         - v is a 1D torch tensor matching flattened params
-#         Returns flattened Hv tensor.
-#     """
-#     grad_flat = _grad(loss, params, create_graph=True)
-#     dot = torch.dot(grad_flat, v)
-#     hv = torch.autograd.grad(dot, params, retain_graph=True)
-#     hv = [h if h is not None else torch.zeros_like(
-#         p) for h, p in zip(hv, params)]
-#     return torch.cat([h.contiguous().view(-1) for h in hv]).detach()
-#
-def hvp(
-    loss: torch.Tensor, params: List[torch.Tensor], v_flat: torch.Tensor
-) -> torch.Tensor:
+def hvp(loss, params, v):
+    """Compute Hessian-vector product Hv where H =
+    abla^2 loss and v is a vector in parameter space.
+        - loss should be a scalar (torch.Tensor)
+        - params is a list of parameters
+        - v is a 1D torch tensor matching flattened params
+        Returns flattened Hv tensor.
     """
-    Compute Hessian(loss wrt params) @ v using autograd.
-    Args:
-        loss: scalar loss (create_graph=True must be used when obtaining grads).
-        params: list of parameter tensors (requires_grad=True).
-        v_flat: flattened vector to multiply by H (on the same device as params).
-    Returns:
-        H @ v as a flattened tensor on the same device.
+    grad_flat = _grad(loss, params, create_graph=True)
+    dot = torch.dot(grad_flat, v)
+    hv = torch.autograd.grad(dot, params, retain_graph=True)
+    hv = [h if h is not None else torch.zeros_like(p) for h, p in zip(hv, params)]
+    return torch.cat([h.contiguous().view(-1) for h in hv]).detach()
+
+
+def power_iteration_hessian_max(
+    loss_fn, model, params, inputs, targets, n_iters=20, tol=1e-4, device="cpu"
+):
+    """Estimate top eigenvalue and eigenvector of Hessian via power iteration using hvp.
+    loss_fn: callable (model, inputs, targets) -> scalar loss
+    params: list(model.parameters())
+    Returns (lambda_max, vec)
     """
-    # First-order grads
-    grads = torch.autograd.grad(loss, params, create_graph=True, retain_graph=True)
-    # Dot(grads, v)
-    v_list = _like_params(params, v_flat)
-    grad_dot_v = torch.zeros((), device=loss.device)
-    for g, v in zip(grads, v_list):
-        grad_dot_v = grad_dot_v + (g * v).sum()
-    # Differentiate dot(grads, v) to get HVP
-    hv = torch.autograd.grad(grad_dot_v, params, retain_graph=True)
-    return _flatten_tensors(hv)
-
-
-# def top_hessian_eigenpair(
-#     model: nn.Module,
-#     criterion: CriterionFn,
-#     x_batch: torch.Tensor,
-#     y_batch: torch.Tensor,
-#     iters: int = 20,
-#     init_vec: torch.Tensor | None = None,
-# ) -> Tuple[float, torch.Tensor]:
-#     device = next(model.parameters()).device
-#     params = [p for p in model.parameters() if p.requires_grad]
-#
-#     model.zero_grad(set_to_none=True)
-#     y_pred = model(x_batch)
-#     loss = criterion(model, x_batch, y_pred, y_batch)  # <-- use composite loss
-#
-#     if init_vec is None:
-#         v = torch.randn(sum(p.numel() for p in params), device=device)
-#     else:
-#         v = init_vec.to(device)
-#     v = _normalize(v)
-#
-#     for _ in range(iters):
-#         hv = hvp(loss, params, v)
-#         hv_det = hv.detach()
-#         lam = float((v * hv_det).sum().item())
-#         v = _normalize(hv_det)
-#
-#     hv = hvp(loss, params, v)
-#     lam = float((v * hv).sum().item())
-#     v = _normalize(v)
-#     return lam, v
-#
-#
-def top_hessian_eigenpair(
-    model: nn.Module,
-    criterion,
-    x_batch: torch.Tensor,
-    y_batch: torch.Tensor,
-    iters: int = 20,
-    init_vec: torch.Tensor | None = None,
-) -> Tuple[float, torch.Tensor]:
-    """
-    Compute the top Hessian eigenpair (largest eigenvalue and eigenvector) of the loss
-    w.r.t. model parameters using power iteration and autograd Hv products.
-
-    IMPORTANT: `criterion` is expected to have the signature:
-        loss = criterion(model, inputs, targets)
-    (e.g. your `loss_fn_mse`).
-
-    Returns:
-        (eigval, eigvec_flat)
-        - eigval: float (Rayleigh estimate for top eigenvalue)
-        - eigvec_flat: 1D torch.Tensor containing the flattened eigenvector (same device/dtype as params)
-    """
-    device = next(model.parameters()).device
-    dtype = next(model.parameters()).dtype
-
-    model.zero_grad()
-    model.eval()  # avoid dropout / batchnorm updates; change to model.train() if you want training behavior
-
-    x = x_batch.to(device)
-    y = y_batch.to(device)
-
-    # collect parameters that require grad
-    params = [p for p in model.parameters() if p.requires_grad]
-    if len(params) == 0:
-        raise ValueError("Model has no parameters that require gradients.")
-
-    def _flatten(tensor_list):
-        return torch.cat([t.reshape(-1) for t in tensor_list])
-
-    # compute loss (criterion takes model, inputs, targets)
-    loss = criterion(model, x, y)
-    if loss.dim() != 0:
-        loss = loss.mean()
-
-    # first-order gradient with create_graph=True to allow Hv products
-    grads = torch.autograd.grad(loss, params, create_graph=True)
-    g_flat = _flatten(grads)
-
-    param_numel = g_flat.numel()
-
-    # initialize v
-    if init_vec is not None:
-        v = init_vec.to(device=device, dtype=dtype).reshape(-1)
-        if v.numel() != param_numel:
-            raise ValueError(
-                f"init_vec has wrong size ({v.numel()}) expected {param_numel}"
-            )
-        v = v / (v.norm() + 1e-12)
-    else:
-        v = torch.randn(param_numel, device=device, dtype=dtype)
-        v = v / (v.norm() + 1e-12)
-
-    eps = 1e-12
-    eigval = 0.0
-
-    for _ in range(iters):
-        # compute g^T v
-        g_dot_v = torch.dot(g_flat, v)
-
-        # Hessian-vector product: grad(g_dot_v, params)
-        Hv_tensors = torch.autograd.grad(g_dot_v, params, retain_graph=True)
-        Hv_flat = _flatten(Hv_tensors)
-
-        # detach Hv for numerical iteration (no higher-order grads needed)
-        Hv_flat_det = Hv_flat.detach()
-
-        # Rayleigh quotient estimate
-        eigval = float(torch.dot(v, Hv_flat_det).item())
-
-        hv_norm = Hv_flat_det.norm().item()
-        if hv_norm < 1e-16:
-            # near-zero Hv -> stop
+    flat, _ = flatten_params(model)
+    v = torch.randn_like(flat).to(device)
+    v /= v.norm()
+    last_ray = None
+    for i in range(n_iters):
+        model.zero_grad()
+        loss = loss_fn(model, inputs, targets)
+        Hv = hvp(loss, params, v)
+        ray = torch.dot(v, Hv).item()
+        if last_ray is not None and abs(ray - last_ray) < tol:
             break
-
-        # next v is normalized Hv
-        v = Hv_flat_det / (hv_norm + eps)
-
-    # final eigenvector (detached)
-    eigvec = v.detach().clone()
-
-    # recompute precise eigenvalue using final eigvec (recompute Hv w.r.t. eigvec)
-    # recompute loss and grads with create_graph=True
+        last_ray = ray
+        v = Hv
+        nrm = v.norm()
+        if nrm.item() == 0:
+            break
+        v = v / nrm
     model.zero_grad()
-    loss = criterion(model, x, y)
-    if loss.dim() != 0:
-        loss = loss.mean()
-    grads = torch.autograd.grad(loss, params, create_graph=True)
-    g_flat = _flatten(grads)
-
-    g_dot_v = torch.dot(g_flat, eigvec)
-    Hv_tensors = torch.autograd.grad(g_dot_v, params, retain_graph=False)
-    Hv_flat = _flatten(Hv_tensors).detach()
-
-    final_eigval = float(torch.dot(eigvec, Hv_flat).item())
-
-    return final_eigval, eigvec
-
-
-# def power_iteration_hessian_max(
-#     loss_fn, model, params, inputs, targets, n_iters=20, tol=1e-4, device="cpu"
-# ):
-#     """Estimate top eigenvalue and eigenvector of Hessian via power iteration using hvp.
-#     loss_fn: callable (model, inputs, targets) -> scalar loss
-#     params: list(model.parameters())
-#     Returns (lambda_max, vec)
-#     """
-#     flat, _ = flatten_params(model)
-#     v = torch.randn_like(flat).to(device)
-#     v /= v.norm()
-#     last_ray = None
-#     for i in range(n_iters):
-#         model.zero_grad()
-#         loss = loss_fn(model, inputs, targets)
-#         Hv = hvp(loss, params, v)
-#         ray = torch.dot(v, Hv).item()
-#         if last_ray is not None and abs(ray - last_ray) < tol:
-#             break
-#         last_ray = ray
-#         v = Hv
-#         nrm = v.norm()
-#         if nrm.item() == 0:
-#             break
-#         v = v / nrm
-#     model.zero_grad()
-#     loss = loss_fn(model, inputs, targets)
-#     Hv = hvp(loss, params, v)
-#     lambda_max = torch.dot(v, Hv).item()
-#     return lambda_max, v
-#
+    loss = loss_fn(model, inputs, targets)
+    Hv = hvp(loss, params, v)
+    lambda_max = torch.dot(v, Hv).item()
+    return lambda_max, v
 
 
 def spectral_norm_matrix(mat, n_iters=20):

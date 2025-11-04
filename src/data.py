@@ -3,6 +3,22 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset
 
 
+# def one_hot_encode(num_classes):
+#     def hidden_function(label):
+#         one_hot = torch.zeros(num_classes)
+#         one_hot[label] = 1
+#         return one_hot
+#
+#     return hidden_function
+#
+
+
+def one_hot_encode(label):
+    one_hot = torch.zeros(10, dtype=torch.float)
+    one_hot[label] = 1
+    return one_hot
+
+
 def get_mnist_loaders(
     batch_size=128, train_size=None, test_size=None, download=True, root="./data"
 ):
@@ -10,10 +26,18 @@ def get_mnist_loaders(
         [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
     )
     train = datasets.MNIST(
-        root=root, train=True, download=download, transform=transform
+        root=root,
+        train=True,
+        download=download,
+        transform=transform,
+        target_transform=one_hot_encode,
     )
     test = datasets.MNIST(
-        root=root, train=False, download=download, transform=transform
+        root=root,
+        train=False,
+        download=download,
+        transform=transform,
+        target_transform=one_hot_encode,
     )
     if train_size is not None and train_size < len(train):
         train = Subset(train, list(range(train_size)))
@@ -45,10 +69,18 @@ def get_cifar10_loaders(
         [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
     )
     train = datasets.CIFAR10(
-        root=root, train=True, download=download, transform=transform
+        root=root,
+        train=True,
+        download=download,
+        transform=transform,
+        target_transform=one_hot_encode,
     )
     test = datasets.CIFAR10(
-        root=root, train=False, download=download, transform=transform
+        root=root,
+        train=False,
+        download=download,
+        transform=transform,
+        target_transform=one_hot_encode,
     )
     if train_size is not None and train_size < len(train):
         train = Subset(train, list(range(train_size)))

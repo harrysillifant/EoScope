@@ -150,7 +150,6 @@ def main():
 
         # Layer spectral norms
         try:
-            raise ValueError
             norms = layer_spectral_norms(model)
         except Exception as e:
             print("Layer norm computation failed:", e)
@@ -158,7 +157,6 @@ def main():
 
         # NTK top-k
         try:
-            raise ValueError
             ntk_subset = args.ntk_subset
             if ntk_subset > 0:
                 xs = []
@@ -180,7 +178,6 @@ def main():
 
         # Hessian top-k eigenvalues
         try:
-            raise ValueError
             h_topk = hessian_topk_via_deflation(
                 loss_fn_mse,
                 model,
